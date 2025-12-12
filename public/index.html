@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>みんなでライト</title>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <button id="btn" style="padding:40px; font-size:24px; width:80%; margin: 30px auto; display:block; background-color:#ddd;">
+        準備：カメラ許可
+    </button>
+    <p style="text-align:center;">↓ 親機(操作する人)のみ使用 ↓</p>
+    
+    <div style="display:flex; justify-content:center; gap:10px;">
+        <button id="masterOn" style="padding:20px; background:red; color:white; font-size:18px;">全員ON</button>
+        <button id="masterOff" style="padding:20px; background:black; color:white; font-size:18px;">全員OFF</button>
+    </div>
+
+    <script>
+        const socket = io(); // サーバーに接続
+        const btn = document.getElementById('btn'); 
+        let track = null;
+
+        // カメラ準備
+        btn.addEventListener('click', async () => {
+            if (!track) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'environment' }
+                    });
+                    track = stream.getVideoTracks()[0];
+                    btn.textContent = "待機中(指示待ち)";
+                    btn.style.backgroundColor = "#fff";
+                } catch (err) {
+                    alert("カメラ許可が必要です");
+                }
+            }
+        });
+
+        // 指示を受け取った時の動作
+        socket.on("broadcast_switch", async (orderIsOn) => {
+            if (!track) return; 
+
+            try {
+                await track.applyConstraints({
+                    advanced: [{ torch: orderIsOn }]
+                });
+                btn.style.backgroundColor = orderIsOn ? "yellow" : "#fff";
+                btn.textContent = orderIsOn ? "点灯中！" : "待機中...";
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // 親機としての動作
+        document.getElementById('masterOn').addEventListener('click', () => {
+            socket.emit("remote_switch", true);
+        });
+        document.getElementById('masterOff').addEventListener('click', () => {
+            socket.emit("remote_switch", false);
+        });
+    </script>
+</body>
+</html>
