@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>みんなでライト</title>
+    <title>みんなでライト（モールス信号付）</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
         button { cursor: pointer; border: none; border-radius: 8px; font-weight: bold; }
         
-        /* 人数表示のデザイン */
+        /* ステータスバー */
         .status-bar {
             background: #333; padding: 10px; border-radius: 20px;
-            display: inline-block; margin-bottom: 20px; font-size: 0.9em;
-            border: 1px solid #555;
+            display: inline-block; margin-bottom: 20px; font-size: 0.9em; border: 1px solid #555;
         }
         #count { font-size: 1.2em; color: #00ff00; font-weight: bold; }
 
@@ -21,10 +20,10 @@
         #btn { 
             padding: 40px; font-size: 24px; width: 100%; max-width: 400px; 
             margin: 10px auto; display: block; background-color: #ddd; color: #333;
-            transition: background 0.3s;
+            transition: background 0.2s, transform 0.1s;
         }
 
-        /* 親機用コントロールパネル */
+        /* 親機パネル */
         #master-panel {
             margin-top: 50px; padding: 20px; border: 2px solid #555; border-radius: 10px; background: #333;
         }
@@ -33,11 +32,18 @@
         #masterOn { background: #e74c3c; }
         #masterOff { background: #333; border: 1px solid #777; }
 
-        #options { 
-            display: none; background: #444; padding: 15px; border-radius: 8px; margin-top: 15px;
+        /* オプションパネル */
+        .option-box { 
+            background: #444; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: left;
         }
-        input[type="range"] { width: 100%; margin: 10px 0; }
-        label { display: block; margin-bottom: 5px; font-size: 1.1em; }
+        .option-title { font-size: 0.9em; color: #ccc; margin-bottom: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;}
+        
+        input[type="text"] {
+            width: 70%; padding: 10px; font-size: 16px; border-radius: 5px; border: none;
+        }
+        #sendMorseBtn {
+            width: 25%; padding: 10px; background: #3498db; color: white; border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -59,40 +65,55 @@
             <button id="masterOff" class="master-btn">全員OFF</button>
         </div>
 
-        <div id="options">
-            <div style="margin-bottom: 20px;">
-                <label>
-                    <input type="checkbox" id="blinkCheck" style="transform: scale(1.5);"> 
-                    点滅モードにする
-                </label>
+        <div class="option-box">
+            <div class="option-title">💡 点滅・ストロボ</div>
+            <label style="display:block; margin-bottom:10px;">
+                <input type="checkbox" id="blinkCheck" style="transform: scale(1.5); margin-right:10px;"> 
+                点滅モード有効
+            </label>
+            <label>速さ: <span id="speedVal">500</span>ms</label>
+            <input type="range" id="blinkRange" min="50" max="2000" step="50" value="500" style="width:100%;">
+        </div>
+
+        <div class="option-box">
+            <div class="option-title">📡 モールス信号送信 (アルファベット)</div>
+            <div style="display:flex; justify-content:space-between;">
+                <input type="text" id="morseInput" placeholder="SOS / LOVE etc." maxlength="20">
+                <button id="sendMorseBtn">送信</button>
             </div>
-            <div>
-                <label>点滅の速さ: <span id="speedVal">500</span>ms</label>
-                <input type="range" id="blinkRange" min="50" max="2000" step="50" value="500">
-            </div>
+            <div style="font-size:0.8em; color:#aaa; margin-top:5px;">※半角英数字のみ</div>
         </div>
     </div>
 
     <script>
         const socket = io();
         const btn = document.getElementById('btn');
-        const countSpan = document.getElementById('count'); // 人数表示用
+        const countSpan = document.getElementById('count');
         
-        // その他の要素
+        // 親機用要素
         const masterOn = document.getElementById('masterOn');
         const masterOff = document.getElementById('masterOff');
-        const optionsDiv = document.getElementById('options');
         const blinkCheck = document.getElementById('blinkCheck');
         const blinkRange = document.getElementById('blinkRange');
         const speedVal = document.getElementById('speedVal');
+        const morseInput = document.getElementById('morseInput');
+        const sendMorseBtn = document.getElementById('sendMorseBtn');
 
         let track = null;
-        let blinkTimer = null;
+        let activeInterval = null; // 点滅用のタイマー
+        let activeTimeouts = [];   // モールス信号用の予約リスト
 
-        // ★人数更新の受け取り
-        socket.on("update_count", (count) => {
-            countSpan.textContent = count;
-        });
+        // --- モールス信号辞書 ---
+        const MORSE_CODE = {
+            'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+            'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+            'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+            'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+            'Y': '-.--', 'Z': '--..', '1': '.----', '2': '..---', '3': '...--',
+            '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..',
+            '9': '----.', '0': '-----', ' ': ' ' // スペース
+        };
+        const UNIT_TIME = 150; // モールスの基本単位時間(ms)
 
         // --- 1. カメラ準備 ---
         btn.addEventListener('click', async () => {
@@ -110,66 +131,148 @@
             }
         });
 
-        // --- 2. ライト制御 ---
+        // --- 2. ライト制御関数 ---
         async function setTorch(bool) {
             if (!track) return;
             try {
                 await track.applyConstraints({ advanced: [{ torch: bool }] });
+                // 画面上の見た目も同期
+                if(bool){
+                    btn.style.backgroundColor = "yellow";
+                    btn.style.color = "black";
+                    btn.textContent = "ON!";
+                } else {
+                    btn.style.backgroundColor = "#333";
+                    btn.style.color = "white";
+                    btn.textContent = "OFF";
+                }
             } catch (err) { console.error(err); }
         }
 
-        socket.on("broadcast_switch", (data) => {
-            if (blinkTimer) { clearInterval(blinkTimer); blinkTimer = null; }
-
-            if (!data.isOn) {
-                setTorch(false);
-                btn.style.backgroundColor = "#fff";
-                btn.textContent = "待機中...";
-                return;
+        // 全てのリセット（点滅もモールスも停止）
+        function clearAllEffects() {
+            if (activeInterval) {
+                clearInterval(activeInterval);
+                activeInterval = null;
             }
-
-            if (data.isBlink) {
-                let toggle = true;
-                btn.textContent = "点滅中！";
-                blinkTimer = setInterval(() => {
-                    setTorch(toggle);
-                    btn.style.backgroundColor = toggle ? "yellow" : "#333";
-                    btn.style.color = toggle ? "black" : "white";
-                    toggle = !toggle;
-                }, data.interval);
-            } else {
-                setTorch(true);
-                btn.style.backgroundColor = "yellow";
-                btn.style.color = "black";
-                btn.textContent = "点灯中！";
-            }
-        });
-
-        // --- 3. 親機操作 ---
-        function sendStatus() {
-            const data = {
-                isOn: true,
-                isBlink: blinkCheck.checked,
-                interval: parseInt(blinkRange.value)
-            };
-            socket.emit("remote_switch", data);
+            activeTimeouts.forEach(id => clearTimeout(id));
+            activeTimeouts = [];
+            setTorch(false);
+            btn.style.backgroundColor = "#fff";
+            btn.textContent = "待機中...";
+            btn.style.color = "#333";
         }
 
-        masterOn.addEventListener('click', () => {
-            optionsDiv.style.display = 'block';
-            sendStatus();
+        // --- 3. サーバーから命令が来たときの処理 ---
+        socket.on("update_count", (n) => countSpan.textContent = n);
+
+        socket.on("broadcast_switch", (data) => {
+            clearAllEffects(); // 新しい命令が来たら、前の動きは止める
+
+            // OFF命令の場合
+            if (data.mode === 'OFF') return;
+
+            // ON (常時点灯)
+            if (data.mode === 'ON') {
+                setTorch(true);
+            }
+            
+            // 点滅 (BLINK)
+            else if (data.mode === 'BLINK') {
+                let toggle = true;
+                setTorch(true); // 最初はつける
+                activeInterval = setInterval(() => {
+                    toggle = !toggle;
+                    setTorch(toggle);
+                }, data.interval);
+            }
+
+            // モールス信号 (MORSE)
+            else if (data.mode === 'MORSE') {
+                const text = data.text.toUpperCase();
+                let currentTime = 0;
+
+                // 文字列を解析してスケジュールを組む
+                for (let char of text) {
+                    const code = MORSE_CODE[char];
+                    if (!code) {
+                        // 辞書にない文字は空白扱い（語間スペース）
+                        currentTime += UNIT_TIME * 7; 
+                        continue;
+                    }
+
+                    // 文字ごとの処理 (例: SOS の S = ...)
+                    for (let symbol of code) {
+                        // 点(.)か線(-)かで長さを決める
+                        const duration = (symbol === '.') ? UNIT_TIME : UNIT_TIME * 3;
+                        
+                        // ON予約
+                        let t1 = setTimeout(() => setTorch(true), currentTime);
+                        activeTimeouts.push(t1);
+
+                        currentTime += duration;
+
+                        // OFF予約 (音の切れ目)
+                        let t2 = setTimeout(() => setTorch(false), currentTime);
+                        activeTimeouts.push(t2);
+
+                        currentTime += UNIT_TIME; // 符号間の休み
+                    }
+                    currentTime += UNIT_TIME * 3; // 文字間の休み
+                }
+                
+                // 全部の再生が終わったら待機表示に戻す予約
+                let tEnd = setTimeout(() => {
+                    btn.style.backgroundColor = "#fff";
+                    btn.textContent = "送信完了";
+                    btn.style.color = "#333";
+                }, currentTime);
+                activeTimeouts.push(tEnd);
+            }
         });
 
-        masterOff.addEventListener('click', () => {
-            optionsDiv.style.display = 'none';
-            socket.emit("remote_switch", { isOn: false });
-        });
+        // --- 4. 親機からの送信 ---
+        
+        // 常時点灯・点滅の送信
+        function sendBasicStatus(isOn) {
+            // OFFボタンが押されたら強制OFF
+            if (!isOn) {
+                socket.emit("remote_switch", { mode: 'OFF' });
+                return;
+            }
+            // ONボタンが押された時、点滅チェックがあればBLINK、なければON
+            if (blinkCheck.checked) {
+                socket.emit("remote_switch", { 
+                    mode: 'BLINK', 
+                    interval: parseInt(blinkRange.value) 
+                });
+            } else {
+                socket.emit("remote_switch", { mode: 'ON' });
+            }
+        }
 
-        blinkCheck.addEventListener('change', sendStatus);
+        masterOn.addEventListener('click', () => sendBasicStatus(true));
+        masterOff.addEventListener('click', () => sendBasicStatus(false));
+        
+        // リアルタイム反映（点滅中なら速度変更などを即送る）
         blinkRange.addEventListener('input', () => {
             speedVal.textContent = blinkRange.value;
-            sendStatus();
+            if (blinkCheck.checked) sendBasicStatus(true);
         });
+        blinkCheck.addEventListener('change', () => {
+            // チェックを入れたり外したりした瞬間にモード切替
+            // もし「全員OFF」状態なら何もしない方が安全だが、ここでは即反映させる
+            sendBasicStatus(true); 
+        });
+
+        // モールス信号送信
+        sendMorseBtn.addEventListener('click', () => {
+            const text = morseInput.value;
+            if (!text) return;
+            // チェックボックスなどは無視してモールスモードで送る
+            socket.emit("remote_switch", { mode: 'MORSE', text: text });
+        });
+
     </script>
 </body>
 </html>
