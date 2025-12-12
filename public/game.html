@@ -51,7 +51,7 @@
 </head>
 <body>
 
-    <h2>⚡ スピードタッチ ⚡</h2>
+    <h2>スピードタッチ</h2>
     <div class="info">残り時間: <span id="time">15</span>秒</div>
     <div class="info">スコア: <span id="score">0</span></div>
 
@@ -59,6 +59,26 @@
         </div>
 
     <button id="startBtn" onclick="startGame()">スタート！</button>
+
+    <button id="startBtn" onclick="startGame()">スタート！</button>
+    
+    <div style="margin-top: 30px;">
+        <a href="/snake.html" style="
+            display: inline-block;
+            text-decoration: none;
+            background-color: #27ae60; /* スネークっぽい緑色 */
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: bold;
+            border: 2px solid #1e8449;
+            box-shadow: 0 4px #1e8449;
+            transition: all 0.1s;
+        " ontouchstart="this.style.boxShadow='0 2px #1e8449'; this.style.transform='translateY(2px)';"
+          ontouchend="this.style.boxShadow='0 4px #1e8449'; this.style.transform='translateY(0)';">
+            さらに暇な人はこちら
+        </a>
+    </div>
 
     <a href="/" class="back-link">← ライト操作に戻る</a>
 

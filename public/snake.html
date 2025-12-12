@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>さらに暇な人用スネーク</title>
+    <style>
+        body {
+            background-color: #222; color: white;
+            font-family: sans-serif; text-align: center;
+            touch-action: none; /* スクロールを防ぐ */
+            overscroll-behavior: none;
+        }
+        h2 { margin: 10px 0; color: #2ecc71; }
+        #game-container {
+            margin: 0 auto;
+            display: inline-block;
+        }
+        canvas {
+            background-color: #333;
+            border: 2px solid #555;
+            border-radius: 5px;
+            display: block; /* 隙間をなくす */
+        }
+        .info { font-size: 1.2em; margin: 5px; }
+        #startBtn {
+            padding: 10px 30px; font-size: 1.2em;
+            background: #27ae60; color: white; border: none; border-radius: 8px;
+            margin-top: 15px; cursor: pointer;
+        }
+        .back-link {
+            display: block; margin-top: 20px; color: #aaa; text-decoration: none; padding: 10px;
+        }
+        p.hint { font-size: 0.8em; color: #aaa; margin-bottom: 5px;}
+    </style>
+</head>
+<body>
+
+    <h2>🐍 スネークゲーム</h2>
+    <p class="hint">PCは矢印キー、スマホはフリック操作</p>
+    <div class="info">スコア: <span id="score">0</span></div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="300" height="300"></canvas>
+    </div>
+    
+    <br>
+    <button id="startBtn" onclick="startGame()">ゲームスタート</button>
+
+    <a href="/game.html" class="back-link">← スピードタッチに戻る</a>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const startBtn = document.getElementById('startBtn');
+
+        const GRID_SIZE = 15; // マスの大きさ
+        const TILE_COUNT = canvas.width / GRID_SIZE; // 1辺のマス数(20個)
+        
+        let snake = [];
+        let food = {};
+        let dx = 0;
+        let dy = 0;
+        let score = 0;
+        let gameLoop = null;
+        let isGameOver = false;
+
+        // --- 操作関連 (スマホ対応) ---
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        document.addEventListener('keydown', changeDirection);
+        canvas.addEventListener('touchstart', e => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            e.preventDefault();
+        }, {passive: false});
+        
+        canvas.addEventListener('touchmove', e => {
+            if (isGameOver) return;
+            e.preventDefault();
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const diffX = touchEndX - touchStartX;
+            const diffY = touchEndY - touchStartY;
+
+            // 移動量が少ない場合は無視（タップ誤爆防止）
+            if (Math.abs(diffX) < 30 && Math.abs(diffY) < 30) return;
+
+            // より大きく動かした方向を検知
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                if (diffX > 0 && dx === 0) { dx = 1; dy = 0; } // 右
+                else if (diffX < 0 && dx === 0) { dx = -1; dy = 0; } // 左
+            } else {
+                if (diffY > 0 && dy === 0) { dx = 0; dy = 1; } // 下
+                else if (diffY < 0 && dy === 0) { dx = 0; dy = -1; } // 上
+            }
+            // 連続入力防止のため開始点をリセット
+            touchStartX = touchEndX;
+            touchStartY = touchEndY;
+        }, {passive: false});
+
+
+        function startGame() {
+            if (gameLoop) clearInterval(gameLoop);
+            snake = [{x: 10, y: 10}]; // 初期位置
+            dx = 1; dy = 0; // 最初は右へ
+            score = 0;
+            isGameOver = false;
+            scoreDisplay.textContent = score;
+            startBtn.style.display = 'none';
+            placeFood();
+            // 100msごとに画面を更新（スピード）
+            gameLoop = setInterval(update, 100);
+        }
+
+        function update() {
+            if (isGameOver) return;
+            moveSnake();
+            checkCollision();
+            draw();
+        }
+
+        function moveSnake() {
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+            snake.unshift(head); // 頭を追加
+
+            // エサを食べたか確認
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                scoreDisplay.textContent = score;
+                placeFood();
+            } else {
+                snake.pop(); // 食べてなければ尻尾を削除
+            }
+        }
+
+        function checkCollision() {
+            const head = snake[0];
+            // 壁衝突
+            if (head.x < 0 || head.x >= TILE_COUNT || head.y < 0 || head.y >= TILE_COUNT) {
+                gameOver();
+            }
+            // 自分自身に衝突（頭以外と重なったら）
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    gameOver();
+                }
+            }
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameLoop);
+            startBtn.style.display = 'inline-block';
+            startBtn.textContent = "もう一回遊ぶ";
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2);
+        }
+
+        function draw() {
+            // 画面クリア
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // エサ描画
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(food.x * GRID_SIZE, food.y * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
+
+            // ヘビ描画
+            ctx.fillStyle = '#2ecc71';
+            snake.forEach((segment, index) => {
+                // 頭は少し色を変える
+                if (index === 0) ctx.fillStyle = '#27ae60';
+                else ctx.fillStyle = '#2ecc71';
+                ctx.fillRect(segment.x * GRID_SIZE, segment.y * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
+            });
+        }
+
+        function placeFood() {
+            food = {
+                x: Math.floor(Math.random() * TILE_COUNT),
+                y: Math.floor(Math.random() * TILE_COUNT)
+            };
+            // ヘビの上にエサが出ないようにする簡単な対策
+            snake.forEach(segment => {
+                if (segment.x === food.x && segment.y === food.y) placeFood();
+            });
+        }
+
+        function changeDirection(e) {
+            if (isGameOver) return;
+            const key = e.keyCode;
+            // 逆方向には進めないように制限
+            if (key === 37 && dx === 0) { dx = -1; dy = 0; } // 左
+            else if (key === 38 && dy === 0) { dx = 0; dy = -1; } // 上
+            else if (key === 39 && dx === 0) { dx = 1; dy = 0; } // 右
+            else if (key === 40 && dy === 0) { dx = 0; dy = 1; } // 下
+        }
+
+        // 初期描画
+        draw();
+    </script>
+</body>
+</html>
