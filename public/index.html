@@ -3,26 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>みんなでライト</title>
+    <title>みんなでライト（点滅対応）</title>
     <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
+        button { cursor: pointer; border: none; border-radius: 8px; font-weight: bold; }
+        
+        /* 参加者用ボタン */
+        #btn { 
+            padding: 40px; font-size: 24px; width: 100%; max-width: 400px; 
+            margin: 20px auto; display: block; background-color: #ddd; color: #333;
+            transition: background 0.3s;
+        }
+
+        /* 親機用コントロールパネル */
+        #master-panel {
+            margin-top: 50px; padding: 20px; border: 2px solid #555; border-radius: 10px; background: #333;
+        }
+        .control-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        .master-btn { padding: 15px 30px; font-size: 18px; color: white; }
+        #masterOn { background: #e74c3c; }
+        #masterOff { background: #333; border: 1px solid #777; }
+
+        /* オプションエリア（最初は隠す） */
+        #options { 
+            display: none; /* ここで非表示にしている */
+            background: #444; padding: 15px; border-radius: 8px; margin-top: 15px;
+        }
+        input[type="range"] { width: 100%; margin: 10px 0; }
+        label { display: block; margin-bottom: 5px; font-size: 1.1em; }
+    </style>
 </head>
 <body>
-    <button id="btn" style="padding:40px; font-size:24px; width:80%; margin: 30px auto; display:block; background-color:#ddd;">
-        準備：カメラ許可
-    </button>
-    <p style="text-align:center;">↓ 親機(操作する人)のみ使用 ↓</p>
-    
-    <div style="display:flex; justify-content:center; gap:10px;">
-        <button id="masterOn" style="padding:20px; background:red; color:white; font-size:18px;">全員ON</button>
-        <button id="masterOff" style="padding:20px; background:black; color:white; font-size:18px;">全員OFF</button>
+
+    <button id="btn">準備：カメラ許可</button>
+    <p id="status-text">↓ 親機(操作する人)のみ使用 ↓</p>
+
+    <hr style="border-color: #555;">
+
+    <div id="master-panel">
+        <h3>👑 親機コントロール</h3>
+        
+        <div class="control-group">
+            <button id="masterOn" class="master-btn">全員ON</button>
+            <button id="masterOff" class="master-btn">全員OFF</button>
+        </div>
+
+        <div id="options">
+            <div style="margin-bottom: 20px;">
+                <label>
+                    <input type="checkbox" id="blinkCheck" style="transform: scale(1.5);"> 
+                    点滅モードにする
+                </label>
+            </div>
+            
+            <div>
+                <label>点滅の速さ: <span id="speedVal">500</span>ms</label>
+                <input type="range" id="blinkRange" min="50" max="2000" step="50" value="500">
+            </div>
+        </div>
     </div>
 
     <script>
-        const socket = io(); // サーバーに接続
-        const btn = document.getElementById('btn'); 
-        let track = null;
+        const socket = io();
+        const btn = document.getElementById('btn');
+        const masterOn = document.getElementById('masterOn');
+        const masterOff = document.getElementById('masterOff');
+        const optionsDiv = document.getElementById('options');
+        const blinkCheck = document.getElementById('blinkCheck');
+        const blinkRange = document.getElementById('blinkRange');
+        const speedVal = document.getElementById('speedVal');
 
-        // カメラ準備
+        let track = null;
+        let blinkTimer = null; // 点滅用のタイマー
+
+        // --- 1. カメラ準備 ---
         btn.addEventListener('click', async () => {
             if (!track) {
                 try {
@@ -30,7 +85,7 @@
                         video: { facingMode: 'environment' }
                     });
                     track = stream.getVideoTracks()[0];
-                    btn.textContent = "待機中(指示待ち)";
+                    btn.textContent = "待機中...";
                     btn.style.backgroundColor = "#fff";
                 } catch (err) {
                     alert("カメラ許可が必要です");
@@ -38,28 +93,83 @@
             }
         });
 
-        // 指示を受け取った時の動作
-        socket.on("broadcast_switch", async (orderIsOn) => {
-            if (!track) return; 
-
+        // --- 2. ライト制御関数 ---
+        async function setTorch(bool) {
+            if (!track) return;
             try {
-                await track.applyConstraints({
-                    advanced: [{ torch: orderIsOn }]
-                });
-                btn.style.backgroundColor = orderIsOn ? "yellow" : "#fff";
-                btn.textContent = orderIsOn ? "点灯中！" : "待機中...";
-            } catch (err) {
-                console.error(err);
+                await track.applyConstraints({ advanced: [{ torch: bool }] });
+            } catch (err) { console.error(err); }
+        }
+
+        // --- 3. サーバーから命令が来たときの動き ---
+        socket.on("broadcast_switch", (data) => {
+            // 前の点滅設定があれば一旦リセット
+            if (blinkTimer) {
+                clearInterval(blinkTimer);
+                blinkTimer = null;
+            }
+
+            // データがOFFなら消して終わり
+            if (!data.isOn) {
+                setTorch(false);
+                btn.style.backgroundColor = "#fff";
+                btn.textContent = "待機中...";
+                return;
+            }
+
+            // データがONの場合
+            if (data.isBlink) {
+                // 点滅モード
+                let toggle = true;
+                btn.textContent = "点滅中！";
+                // 指定された間隔でON/OFFを繰り返す
+                blinkTimer = setInterval(() => {
+                    setTorch(toggle);
+                    btn.style.backgroundColor = toggle ? "yellow" : "#333";
+                    btn.style.color = toggle ? "black" : "white";
+                    toggle = !toggle;
+                }, data.interval);
+            } else {
+                // 常時点灯モード
+                setTorch(true);
+                btn.style.backgroundColor = "yellow";
+                btn.style.color = "black";
+                btn.textContent = "点灯中！";
             }
         });
 
-        // 親機としての動作
-        document.getElementById('masterOn').addEventListener('click', () => {
-            socket.emit("remote_switch", true);
+
+        // --- 4. 親機としての操作 ---
+        
+        // 現在の設定値を送る関数
+        function sendStatus() {
+            const data = {
+                isOn: true,
+                isBlink: blinkCheck.checked,
+                interval: parseInt(blinkRange.value)
+            };
+            socket.emit("remote_switch", data);
+        }
+
+        // ONボタン
+        masterOn.addEventListener('click', () => {
+            optionsDiv.style.display = 'block'; // オプションを表示
+            sendStatus(); // ON信号を送る
         });
-        document.getElementById('masterOff').addEventListener('click', () => {
-            socket.emit("remote_switch", false);
+
+        // OFFボタン
+        masterOff.addEventListener('click', () => {
+            optionsDiv.style.display = 'none'; // オプションを隠す
+            socket.emit("remote_switch", { isOn: false }); // OFF信号を送る
         });
+
+        // オプションを変更した時（リアルタイム反映）
+        blinkCheck.addEventListener('change', sendStatus);
+        blinkRange.addEventListener('input', () => {
+            speedVal.textContent = blinkRange.value; // 数字の表示更新
+            sendStatus(); // 変更を送信
+        });
+
     </script>
 </body>
 </html>
