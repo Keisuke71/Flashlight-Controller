@@ -40,7 +40,7 @@
             //ライトのON/OFF切り替え
             islightON = !islightON;
             try{
-                await track.applyConstrains({
+                await track.applyConstraints({
                     advanced: [{ torch: islightON}]
                 });
                 btn.textContent = islightON ? "ライトOFF" : "ライトON";
