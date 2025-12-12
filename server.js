@@ -5,26 +5,40 @@ const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-// 接続人数を数える変数
+// 環境変数からパスワードを読み込む（設定がなければデフォルトで1234）
+const SYSTEM_PASSWORD = process.env.ADMIN_PASSWORD || "1234";
 let connectionCount = 0;
 
 io.on("connection", (socket) => {
-  // 1. 誰かが来たらカウントアップ
   connectionCount++;
-  // 全員に「今の人数」を知らせる
   io.emit("update_count", connectionCount);
   console.log("接続数:", connectionCount);
 
-  // 2. 誰かがいなくなったらカウントダウン
+  // ★最初は「一般人」として扱う
+  socket.isAdmin = false;
+
   socket.on("disconnect", () => {
     connectionCount--;
-    // 減った人数を全員に知らせる
     io.emit("update_count", connectionCount);
   });
 
-  // 3. ライト操作の命令（今までと同じ）
+  // --- 1. ログイン処理 ---
+  socket.on("admin_login", (inputPassword) => {
+    // 送られてきたパスワードと、設定されたパスワードを比較
+    if (inputPassword === SYSTEM_PASSWORD) {
+      socket.isAdmin = true; // ★合格なら「管理者」のタグをつける
+      socket.emit("login_result", true); // 「成功したよ」と返す
+    } else {
+      socket.emit("login_result", false); // 「失敗したよ」と返す
+    }
+  });
+
+  // --- 2. 命令処理（ガード付き） ---
   socket.on("remote_switch", (status) => {
-    io.emit("broadcast_switch", status);
+    // ★管理者タグを持っている人からの命令しか聞かない！
+    if (socket.isAdmin) {
+      io.emit("broadcast_switch", status);
+    }
   });
 });
 

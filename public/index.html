@@ -3,94 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>みんなでライト（モールス信号付）</title>
+    <title>みんなでライト</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; padding-bottom: 80px;}
         button { cursor: pointer; border: none; border-radius: 8px; font-weight: bold; }
-        
-        /* ステータスバー */
-        .status-bar {
-            background: #333; padding: 10px; border-radius: 20px;
-            display: inline-block; margin-bottom: 20px; font-size: 0.9em; border: 1px solid #555;
-        }
+        .status-bar { background: #333; padding: 10px; border-radius: 20px; display: inline-block; margin-bottom: 20px; font-size: 0.9em; border: 1px solid #555; }
         #count { font-size: 1.2em; color: #00ff00; font-weight: bold; }
-
-        /* 参加者用ボタン */
-        #btn { 
-            padding: 40px; font-size: 24px; width: 100%; max-width: 400px; 
-            margin: 10px auto; display: block; background-color: #ddd; color: #333;
-            transition: background 0.2s, transform 0.1s;
-        }
-
-        /* 親機パネル */
-        #master-panel {
-            margin-top: 50px; padding: 20px; border: 2px solid #555; border-radius: 10px; background: #333;
-        }
+        #btn { padding: 40px; font-size: 24px; width: 100%; max-width: 400px; margin: 10px auto; display: block; background-color: #ddd; color: #333; transition: background 0.2s; }
+        #master-panel { display: none; margin-top: 50px; padding: 20px; border: 2px solid #e74c3c; border-radius: 10px; background: #333; }
         .control-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
         .master-btn { padding: 15px 30px; font-size: 18px; color: white; }
         #masterOn { background: #e74c3c; }
         #masterOff { background: #333; border: 1px solid #777; }
-
-        /* オプションパネル */
-        .option-box { 
-            background: #444; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: left;
-        }
+        .option-box { background: #444; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: left; }
         .option-title { font-size: 0.9em; color: #ccc; margin-bottom: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;}
-        
-        input[type="text"] {
-            width: 70%; padding: 10px; font-size: 16px; border-radius: 5px; border: none;
-        }
-        #sendMorseBtn {
-            width: 25%; padding: 10px; background: #3498db; color: white; border-radius: 5px;
-        }
+        input[type="text"] { width: 70%; padding: 10px; font-size: 16px; border-radius: 5px; border: none; }
+        #sendMorseBtn { width: 25%; padding: 10px; background: #3498db; color: white; border-radius: 5px; }
+        #admin-link { margin-top: 50px; color: #555; font-size: 0.8em; text-decoration: underline; cursor: pointer; }
     </style>
 </head>
 <body>
-
-    <div class="status-bar">
-        現在 <span id="count">0</span> 人が接続中
-    </div>
-
+    <div class="status-bar">現在 <span id="count">0</span> 人が接続中</div>
     <button id="btn">準備：カメラ許可</button>
-    <p>↓ 親機(操作する人)のみ使用 ↓</p>
-
-    <hr style="border-color: #555;">
+    <p id="msg">カメラを許可して待機してください</p>
+    <hr style="border-color: #555; margin-top:30px;">
 
     <div id="master-panel">
-        <h3>👑 親機コントロール</h3>
-        
+        <h3 style="color:#e74c3c;">管理者モード</h3>
         <div class="control-group">
             <button id="masterOn" class="master-btn">全員ON</button>
             <button id="masterOff" class="master-btn">全員OFF</button>
         </div>
-
         <div class="option-box">
-            <div class="option-title">💡 点滅・ストロボ</div>
+            <div class="option-title">💡 点滅</div>
             <label style="display:block; margin-bottom:10px;">
-                <input type="checkbox" id="blinkCheck" style="transform: scale(1.5); margin-right:10px;"> 
-                点滅モード有効
+                <input type="checkbox" id="blinkCheck" style="transform: scale(1.5); margin-right:10px;"> 点滅モード有効
             </label>
             <label>速さ: <span id="speedVal">500</span>ms</label>
             <input type="range" id="blinkRange" min="50" max="2000" step="50" value="500" style="width:100%;">
         </div>
-
         <div class="option-box">
-            <div class="option-title">📡 モールス信号送信 (アルファベット)</div>
+            <div class="option-title">📡 モールス信号送信</div>
             <div style="display:flex; justify-content:space-between;">
-                <input type="text" id="morseInput" placeholder="SOS / LOVE etc." maxlength="20">
+                <input type="text" id="morseInput" placeholder="SOS / LOVE" maxlength="20">
                 <button id="sendMorseBtn">送信</button>
             </div>
-            <div style="font-size:0.8em; color:#aaa; margin-top:5px;">※半角英数字のみ</div>
         </div>
+        <button onclick="location.reload()" style="margin-top:20px; background:#555; color:#ccc; padding:10px;">ログアウト</button>
     </div>
+
+    <div id="admin-link" onclick="tryLogin()">管理者はこちら</div>
 
     <script>
         const socket = io();
         const btn = document.getElementById('btn');
         const countSpan = document.getElementById('count');
+        const msg = document.getElementById('msg');
         
-        // 親機用要素
+        // UI要素
+        const masterPanel = document.getElementById('master-panel');
+        const adminLink = document.getElementById('admin-link');
         const masterOn = document.getElementById('masterOn');
         const masterOff = document.getElementById('masterOff');
         const blinkCheck = document.getElementById('blinkCheck');
@@ -100,179 +73,102 @@
         const sendMorseBtn = document.getElementById('sendMorseBtn');
 
         let track = null;
-        let activeInterval = null; // 点滅用のタイマー
-        let activeTimeouts = [];   // モールス信号用の予約リスト
+        let activeInterval = null;
+        let activeTimeouts = [];
 
-        // --- モールス信号辞書 ---
-        const MORSE_CODE = {
-            'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
-            'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
-            'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
-            'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
-            'Y': '-.--', 'Z': '--..', '1': '.----', '2': '..---', '3': '...--',
-            '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..',
-            '9': '----.', '0': '-----', ' ': ' ' // スペース
-        };
-        const UNIT_TIME = 150; // モールスの基本単位時間(ms)
+        // --- ★認証ロジックの変更 ---
+        
+        function tryLogin() {
+            const input = prompt("管理者パスワードを入力してください");
+            if(input) {
+                // パスワードをサーバーに送って判定してもらう
+                socket.emit("admin_login", input);
+            }
+        }
 
-        // --- 1. カメラ準備 ---
+        // サーバーからの合否通知を受け取る
+        socket.on("login_result", (isSuccess) => {
+            if (isSuccess) {
+                masterPanel.style.display = "block";
+                adminLink.style.display = "none";
+                alert("認証成功！管理者モードになりました");
+            } else {
+                alert("パスワードが違います");
+            }
+        });
+
+        //モールス信号モード
+
+        const MORSE_CODE = { 'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.', 'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..', 'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.', 'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-', 'Y': '-.--', 'Z': '--..', '1': '.----', '2': '..---', '3': '...--', '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.', '0': '-----', ' ': ' ' };
+        const UNIT_TIME = 150; 
+
         btn.addEventListener('click', async () => {
             if (!track) {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: 'environment' }
-                    });
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     track = stream.getVideoTracks()[0];
                     btn.textContent = "待機中...";
                     btn.style.backgroundColor = "#fff";
-                } catch (err) {
-                    alert("カメラ許可が必要です");
-                }
+                    msg.textContent = "指示があるまでそのままお待ちください";
+                } catch (err) { alert("カメラ許可が必要です"); }
             }
         });
-
-        // --- 2. ライト制御関数 ---
+        
         async function setTorch(bool) {
             if (!track) return;
-            try {
-                await track.applyConstraints({ advanced: [{ torch: bool }] });
-                // 画面上の見た目も同期
-                if(bool){
-                    btn.style.backgroundColor = "yellow";
-                    btn.style.color = "black";
-                    btn.textContent = "ON!";
-                } else {
-                    btn.style.backgroundColor = "#333";
-                    btn.style.color = "white";
-                    btn.textContent = "OFF";
-                }
-            } catch (err) { console.error(err); }
+            try { await track.applyConstraints({ advanced: [{ torch: bool }] });
+                if(bool){ btn.style.backgroundColor = "yellow"; btn.textContent = "ON!"; } 
+                else { btn.style.backgroundColor = "#333"; btn.textContent = "OFF"; }
+            } catch (err) {}
         }
 
-        // 全てのリセット（点滅もモールスも停止）
         function clearAllEffects() {
-            if (activeInterval) {
-                clearInterval(activeInterval);
-                activeInterval = null;
-            }
-            activeTimeouts.forEach(id => clearTimeout(id));
-            activeTimeouts = [];
+            if (activeInterval) { clearInterval(activeInterval); activeInterval = null; }
+            activeTimeouts.forEach(id => clearTimeout(id)); activeTimeouts = [];
             setTorch(false);
-            btn.style.backgroundColor = "#fff";
-            btn.textContent = "待機中...";
-            btn.style.color = "#333";
+            btn.style.backgroundColor = "#fff"; btn.textContent = "待機中...";
         }
 
-        // --- 3. サーバーから命令が来たときの処理 ---
         socket.on("update_count", (n) => countSpan.textContent = n);
 
         socket.on("broadcast_switch", (data) => {
-            clearAllEffects(); // 新しい命令が来たら、前の動きは止める
-
-            // OFF命令の場合
+            clearAllEffects();
             if (data.mode === 'OFF') return;
-
-            // ON (常時点灯)
-            if (data.mode === 'ON') {
-                setTorch(true);
-            }
-            
-            // 点滅 (BLINK)
+            if (data.mode === 'ON') setTorch(true);
             else if (data.mode === 'BLINK') {
-                let toggle = true;
-                setTorch(true); // 最初はつける
-                activeInterval = setInterval(() => {
-                    toggle = !toggle;
-                    setTorch(toggle);
-                }, data.interval);
+                let toggle = true; setTorch(true);
+                activeInterval = setInterval(() => { toggle = !toggle; setTorch(toggle); }, data.interval);
             }
-
-            // モールス信号 (MORSE)
             else if (data.mode === 'MORSE') {
                 const text = data.text.toUpperCase();
                 let currentTime = 0;
-
-                // 文字列を解析してスケジュールを組む
                 for (let char of text) {
                     const code = MORSE_CODE[char];
-                    if (!code) {
-                        // 辞書にない文字は空白扱い（語間スペース）
-                        currentTime += UNIT_TIME * 7; 
-                        continue;
-                    }
-
-                    // 文字ごとの処理 (例: SOS の S = ...)
+                    if (!code) { currentTime += UNIT_TIME * 7; continue; }
                     for (let symbol of code) {
-                        // 点(.)か線(-)かで長さを決める
                         const duration = (symbol === '.') ? UNIT_TIME : UNIT_TIME * 3;
-                        
-                        // ON予約
-                        let t1 = setTimeout(() => setTorch(true), currentTime);
-                        activeTimeouts.push(t1);
-
+                        let t1 = setTimeout(() => setTorch(true), currentTime); activeTimeouts.push(t1);
                         currentTime += duration;
-
-                        // OFF予約 (音の切れ目)
-                        let t2 = setTimeout(() => setTorch(false), currentTime);
-                        activeTimeouts.push(t2);
-
-                        currentTime += UNIT_TIME; // 符号間の休み
+                        let t2 = setTimeout(() => setTorch(false), currentTime); activeTimeouts.push(t2);
+                        currentTime += UNIT_TIME;
                     }
-                    currentTime += UNIT_TIME * 3; // 文字間の休み
+                    currentTime += UNIT_TIME * 3;
                 }
-                
-                // 全部の再生が終わったら待機表示に戻す予約
-                let tEnd = setTimeout(() => {
-                    btn.style.backgroundColor = "#fff";
-                    btn.textContent = "送信完了";
-                    btn.style.color = "#333";
-                }, currentTime);
-                activeTimeouts.push(tEnd);
+                activeTimeouts.push(setTimeout(() => { btn.style.backgroundColor = "#fff"; btn.textContent = "受信完了"; }, currentTime));
             }
         });
 
-        // --- 4. 親機からの送信 ---
-        
-        // 常時点灯・点滅の送信
+        // 送信処理（サーバー側でガードしているので、認証済みでないと送っても無視される）
         function sendBasicStatus(isOn) {
-            // OFFボタンが押されたら強制OFF
-            if (!isOn) {
-                socket.emit("remote_switch", { mode: 'OFF' });
-                return;
-            }
-            // ONボタンが押された時、点滅チェックがあればBLINK、なければON
-            if (blinkCheck.checked) {
-                socket.emit("remote_switch", { 
-                    mode: 'BLINK', 
-                    interval: parseInt(blinkRange.value) 
-                });
-            } else {
-                socket.emit("remote_switch", { mode: 'ON' });
-            }
+            if (!isOn) { socket.emit("remote_switch", { mode: 'OFF' }); return; }
+            if (blinkCheck.checked) { socket.emit("remote_switch", { mode: 'BLINK', interval: parseInt(blinkRange.value) }); } 
+            else { socket.emit("remote_switch", { mode: 'ON' }); }
         }
-
         masterOn.addEventListener('click', () => sendBasicStatus(true));
         masterOff.addEventListener('click', () => sendBasicStatus(false));
-        
-        // リアルタイム反映（点滅中なら速度変更などを即送る）
-        blinkRange.addEventListener('input', () => {
-            speedVal.textContent = blinkRange.value;
-            if (blinkCheck.checked) sendBasicStatus(true);
-        });
-        blinkCheck.addEventListener('change', () => {
-            // チェックを入れたり外したりした瞬間にモード切替
-            // もし「全員OFF」状態なら何もしない方が安全だが、ここでは即反映させる
-            sendBasicStatus(true); 
-        });
-
-        // モールス信号送信
-        sendMorseBtn.addEventListener('click', () => {
-            const text = morseInput.value;
-            if (!text) return;
-            // チェックボックスなどは無視してモールスモードで送る
-            socket.emit("remote_switch", { mode: 'MORSE', text: text });
-        });
-
+        blinkRange.addEventListener('input', () => { speedVal.textContent = blinkRange.value; if (blinkCheck.checked) sendBasicStatus(true); });
+        blinkCheck.addEventListener('change', () => sendBasicStatus(true));
+        sendMorseBtn.addEventListener('click', () => { if(morseInput.value) socket.emit("remote_switch", { mode: 'MORSE', text: morseInput.value }); });
     </script>
 </body>
 </html>
