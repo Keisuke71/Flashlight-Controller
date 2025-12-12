@@ -3,16 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>みんなでライト（点滅対応）</title>
+    <title>みんなでライト</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
         button { cursor: pointer; border: none; border-radius: 8px; font-weight: bold; }
         
+        /* 人数表示のデザイン */
+        .status-bar {
+            background: #333; padding: 10px; border-radius: 20px;
+            display: inline-block; margin-bottom: 20px; font-size: 0.9em;
+            border: 1px solid #555;
+        }
+        #count { font-size: 1.2em; color: #00ff00; font-weight: bold; }
+
         /* 参加者用ボタン */
         #btn { 
             padding: 40px; font-size: 24px; width: 100%; max-width: 400px; 
-            margin: 20px auto; display: block; background-color: #ddd; color: #333;
+            margin: 10px auto; display: block; background-color: #ddd; color: #333;
             transition: background 0.3s;
         }
 
@@ -25,10 +33,8 @@
         #masterOn { background: #e74c3c; }
         #masterOff { background: #333; border: 1px solid #777; }
 
-        /* オプションエリア（最初は隠す） */
         #options { 
-            display: none; /* ここで非表示にしている */
-            background: #444; padding: 15px; border-radius: 8px; margin-top: 15px;
+            display: none; background: #444; padding: 15px; border-radius: 8px; margin-top: 15px;
         }
         input[type="range"] { width: 100%; margin: 10px 0; }
         label { display: block; margin-bottom: 5px; font-size: 1.1em; }
@@ -36,8 +42,12 @@
 </head>
 <body>
 
+    <div class="status-bar">
+        現在 <span id="count">0</span> 人が接続中
+    </div>
+
     <button id="btn">準備：カメラ許可</button>
-    <p id="status-text">↓ 親機(操作する人)のみ使用 ↓</p>
+    <p>↓ 親機(操作する人)のみ使用 ↓</p>
 
     <hr style="border-color: #555;">
 
@@ -56,7 +66,6 @@
                     点滅モードにする
                 </label>
             </div>
-            
             <div>
                 <label>点滅の速さ: <span id="speedVal">500</span>ms</label>
                 <input type="range" id="blinkRange" min="50" max="2000" step="50" value="500">
@@ -67,6 +76,9 @@
     <script>
         const socket = io();
         const btn = document.getElementById('btn');
+        const countSpan = document.getElementById('count'); // 人数表示用
+        
+        // その他の要素
         const masterOn = document.getElementById('masterOn');
         const masterOff = document.getElementById('masterOff');
         const optionsDiv = document.getElementById('options');
@@ -75,7 +87,12 @@
         const speedVal = document.getElementById('speedVal');
 
         let track = null;
-        let blinkTimer = null; // 点滅用のタイマー
+        let blinkTimer = null;
+
+        // ★人数更新の受け取り
+        socket.on("update_count", (count) => {
+            countSpan.textContent = count;
+        });
 
         // --- 1. カメラ準備 ---
         btn.addEventListener('click', async () => {
@@ -93,7 +110,7 @@
             }
         });
 
-        // --- 2. ライト制御関数 ---
+        // --- 2. ライト制御 ---
         async function setTorch(bool) {
             if (!track) return;
             try {
@@ -101,15 +118,9 @@
             } catch (err) { console.error(err); }
         }
 
-        // --- 3. サーバーから命令が来たときの動き ---
         socket.on("broadcast_switch", (data) => {
-            // 前の点滅設定があれば一旦リセット
-            if (blinkTimer) {
-                clearInterval(blinkTimer);
-                blinkTimer = null;
-            }
+            if (blinkTimer) { clearInterval(blinkTimer); blinkTimer = null; }
 
-            // データがOFFなら消して終わり
             if (!data.isOn) {
                 setTorch(false);
                 btn.style.backgroundColor = "#fff";
@@ -117,12 +128,9 @@
                 return;
             }
 
-            // データがONの場合
             if (data.isBlink) {
-                // 点滅モード
                 let toggle = true;
                 btn.textContent = "点滅中！";
-                // 指定された間隔でON/OFFを繰り返す
                 blinkTimer = setInterval(() => {
                     setTorch(toggle);
                     btn.style.backgroundColor = toggle ? "yellow" : "#333";
@@ -130,7 +138,6 @@
                     toggle = !toggle;
                 }, data.interval);
             } else {
-                // 常時点灯モード
                 setTorch(true);
                 btn.style.backgroundColor = "yellow";
                 btn.style.color = "black";
@@ -138,10 +145,7 @@
             }
         });
 
-
-        // --- 4. 親機としての操作 ---
-        
-        // 現在の設定値を送る関数
+        // --- 3. 親機操作 ---
         function sendStatus() {
             const data = {
                 isOn: true,
@@ -151,25 +155,21 @@
             socket.emit("remote_switch", data);
         }
 
-        // ONボタン
         masterOn.addEventListener('click', () => {
-            optionsDiv.style.display = 'block'; // オプションを表示
-            sendStatus(); // ON信号を送る
+            optionsDiv.style.display = 'block';
+            sendStatus();
         });
 
-        // OFFボタン
         masterOff.addEventListener('click', () => {
-            optionsDiv.style.display = 'none'; // オプションを隠す
-            socket.emit("remote_switch", { isOn: false }); // OFF信号を送る
+            optionsDiv.style.display = 'none';
+            socket.emit("remote_switch", { isOn: false });
         });
 
-        // オプションを変更した時（リアルタイム反映）
         blinkCheck.addEventListener('change', sendStatus);
         blinkRange.addEventListener('input', () => {
-            speedVal.textContent = blinkRange.value; // 数字の表示更新
-            sendStatus(); // 変更を送信
+            speedVal.textContent = blinkRange.value;
+            sendStatus();
         });
-
     </script>
 </body>
 </html>
